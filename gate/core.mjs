@@ -8,6 +8,26 @@ export const reviewId = (snapshot) => sha256(JSON.stringify(snapshot));
 export const escapeHtml = (value) => value.replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
+export function responseFromEvents(raw) {
+  assert(typeof raw === 'string' && raw.trim() && raw.length <= 1024 * 1024,
+    'Missing or oversized CLI event stream');
+  const events = raw.trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert(events.every((event) => event && typeof event.type === 'string'),
+    'Invalid CLI event');
+  assert(!events.some((event) => event.type === 'session.error'
+    || event.type.startsWith('tool.execution')), 'CLI reported an error or tool execution');
+  const results = events.filter((event) => event.type === 'result');
+  assert.equal(results.length, 1, 'Expected one CLI completion');
+  assert.equal(events.at(-1), results[0], 'CLI completion must be final');
+  assert.equal(results[0].exitCode, 0, 'CLI completion failed');
+  const messages = events.filter((event) => event.type === 'assistant.message');
+  assert.equal(messages.length, 1, 'Expected one complete assistant response');
+  const data = messages[0].data;
+  assert(typeof data?.content === 'string' && data.content.trim(), 'Missing response text');
+  assert(!data.toolRequests?.length, 'Tool requests are not allowed');
+  return data.content;
+}
+
 export function rulesFrom(policy) {
   const rules = [...policy.matchAll(/^## (SEC-\d{3}) \| (LOW|MEDIUM|HIGH|CRITICAL) \| .+$/gm)]
     .map((match) => ({ id: match[1], severity: match[2] }));

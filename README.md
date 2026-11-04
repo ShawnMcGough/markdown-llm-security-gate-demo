@@ -38,7 +38,7 @@ No billing upgrade, PAT, bypass, or change to the former repository is needed.
 | `.github/workflows/security-gate.yml` | Trusted PR-triggered review and manual rerun |
 | `gate/core.mjs` | Prompt, strict JSON schema/coverage/severity checks |
 | `gate/run.mjs` | Immutable snapshots, isolated CLI, separate check reporter |
-| `gate/core.test.mjs` | 33 fail-closed parser tests, not model detection |
+| `gate/core.test.mjs` | Fail-closed review and CLI-transport tests, not model detection |
 | `gate/configure.mjs` | Administrator setup/inspection of the main ruleset |
 | `.github/CODEOWNERS` | Base-branch ownership of policy, gate, workflows, itself |
 | `tests/test_app.py` | Three baseline functional tests |
@@ -99,7 +99,8 @@ Official references (November 4, 2026):
 5. Follow the custom check's **Details** link to **Actions > Markdown security
    review**. The **decision** summary includes head/base SHAs, source blob IDs,
    policy digest, CLI version, and validated findings. Download
-   **`llm-review-<attempt>`** for raw `model-response.txt` and `review.json`.
+   **`llm-review-<attempt>`** for raw `cli-events.jsonl`, extracted
+   `model-response.txt`, and validated `review.json`.
    Infrastructure errors may include `cli-error.txt`. Artifacts expire in 14 days.
 6. In **Settings > Rules > Rulesets**, inspect **Require Markdown and LLM review
    on main**: active enforcement, no bypass actors, and the required check bound
@@ -207,6 +208,10 @@ custom instructions, built-in MCPs, or available tools, with explicit
 shell/write/URL denials. It has no checks-write permission. The separate
 reporter has no copilot-requests permission and never executes model output.
 Only approved GitHub/Copilot services receive this synthetic source.
+The CLI uses machine-readable JSONL, not rendered terminal text (which can
+hard-wrap inside JSON strings). Exactly one complete assistant message and a
+successful final CLI completion are required. Malformed model JSON is never
+repaired or inferred from partial streaming deltas.
 
 The reporter recomputes immutable snapshot identity before publishing, requires
 every policy rule exactly once, validates finding severity and source locations,
