@@ -102,6 +102,12 @@ async function start() {
   });
   await appendFile(env.GITHUB_OUTPUT,
     `check_id=${check.id}\nhead=${pr.head.sha}\nbase=${pr.base.sha}\n`);
+  await appendFile(env.GITHUB_STEP_SUMMARY,
+    `## 1. Prepare PR snapshot and pending gate\n\n`
+    + `Created **${CHECK_NAME}** as pending for PR #${pr.number}.\n\n`
+    + `- Candidate commit: \`${pr.head.sha}\`\n`
+    + `- Trusted main commit: \`${pr.base.sha}\`\n\n`
+    + `A green preparation job means the review was initialized, not that the code is safe.\n`);
 }
 
 async function review() {
@@ -143,6 +149,12 @@ async function review() {
     await writeFile(join(output, 'review.json'), JSON.stringify({
       snapshot: data.snapshot, cli_version: CLI_VERSION, ...result,
     }, null, 2));
+    await appendFile(env.GITHUB_STEP_SUMMARY,
+      `## 2. Review code against Markdown policy\n\n`
+      + `Copilot completed all ${result.review.files[0].assessments.length} policy assessments `
+      + `and returned ${result.review.findings.length} finding(s).\n\n`
+      + `A green review job means a complete, valid model response was saved, `
+      + `even when it contains security violations. The required gate determines merge eligibility.\n`);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -150,6 +162,7 @@ async function review() {
 
 async function finish() {
   let conclusion = 'failure';
+  let validatedReview = false;
   let title = 'Review failed closed';
   let summary;
   let annotations = [];
@@ -170,11 +183,19 @@ async function finish() {
       annotation_level: ['HIGH', 'CRITICAL'].includes(finding.severity) ? 'failure' : 'warning',
       title: `${finding.policy_id} (${finding.severity})`, message: finding.rationale,
     }));
+    validatedReview = true;
   } catch (error) {
     summary = `No acceptable verdict was produced. <pre>${escapeHtml(error.message)}</pre>`;
+    console.error(`Review validation failed: ${error.message}`);
   }
   await appendFile(env.GITHUB_STEP_SUMMARY,
-    `## ${CHECK_NAME}: ${title}\n\n${summary}\n\n[Workflow evidence](${runUrl})\n`);
+    `## ${CHECK_NAME}: ${title}\n\n`
+    + `Verdict to publish: **${conclusion.toUpperCase()}**. Publication must also succeed.\n\n`
+    + (validatedReview
+      ? 'The evidence is valid. This reporting job succeeds when publication succeeds, '
+        + 'even if the required gate rejects the code. Read the required check for merge eligibility.\n\n'
+      : 'The evidence could not be validated. Both this reporting job and the required gate fail closed.\n\n')
+    + `${summary}\n\n[Workflow evidence](${runUrl})\n`);
   // A reporter failure leaves the existing check pending, never successful.
   assert(/^\d+$/.test(env.CHECK_ID ?? ''), 'Start did not create a check; required check stays missing');
   const check = await api(`check-runs/${env.CHECK_ID}`);
@@ -186,7 +207,9 @@ async function finish() {
     status: 'completed', conclusion, completed_at: new Date().toISOString(),
     output: { title, summary, annotations }, details_url: runUrl,
   });
-  if (conclusion !== 'success') process.exitCode = 1;
+  await appendFile(env.GITHUB_STEP_SUMMARY,
+    `\nPublished required merge check: **${conclusion.toUpperCase()}**.\n`);
+  if (!validatedReview) process.exitCode = 1;
 }
 
 try {
