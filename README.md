@@ -27,6 +27,8 @@ base `9352b69897e6b38111de3d12b47417d5adfc21ee`. Their reviewed heads are
 `e70369aca289f6404ae6427c880f1c82e8a12fd0` (fail). Both published the exact named
 check from GitHub Actions App **15368** on the correct head. The unsafe review
 job itself succeeded; the decision failed because of the actual model finding.
+These historical runs predate the display-name/reporting-status improvements
+described below; the updated reporter does not duplicate a valid policy failure.
 The model traced `--email` through `main` into interpolated SQL, explaining how
 input could alter the WHERE clause and return unrelated rows.
 
@@ -59,6 +61,7 @@ No billing upgrade, PAT, bypass, or change to the former repository is needed.
 | `gate/core.mjs` | Prompt, strict JSON schema/coverage/severity checks |
 | `gate/run.mjs` | Immutable snapshots, isolated CLI, separate check reporter |
 | `gate/core.test.mjs` | Fail-closed review and CLI-transport tests, not model detection |
+| `gate/run.test.mjs` | Reporter integration fixtures separating policy rejection from job errors |
 | `gate/configure.mjs` | Administrator setup/inspection of the main ruleset |
 | `.github/CODEOWNERS` | Base-branch ownership of policy, gate, workflows, itself |
 | `tests/test_app.py` | Three baseline functional tests |
@@ -117,7 +120,7 @@ Official references (November 4, 2026):
    warning. The intended failure is **SEC-001 / HIGH**, with a source line and
    input-to-SQL explanation, not a workflow error.
 5. Follow the custom check's **Details** link to **Actions > Markdown security
-   review**. The **decision** summary includes head/base SHAs, source blob IDs,
+   review**. The **3. Validate review and publish merge verdict** summary includes head/base SHAs, source blob IDs,
    policy digest, CLI version, and validated findings. Download
    **`llm-review-<attempt>`** for raw `cli-events.jsonl`, extracted
    `model-response.txt`, and validated `review.json`.
@@ -126,6 +129,30 @@ Official references (November 4, 2026):
    on main**: active enforcement, no bypass actors, and the required check bound
    to the actual GitHub Actions App. Check the passing PR's merge eligibility and
    the failing PR's blocked merge box, without merging either.
+
+### Reading the checks panel
+
+The three workflow jobs perform the review process; the separate required check
+is the policy verdict. Job IDs stay `start`, `review`, and `decision` internally,
+but GitHub displays the following teaching-oriented names:
+
+| Displayed check | What a green result means |
+|---|---|
+| **1. Prepare PR snapshot and pending gate** | Captured the head/base commits and created a pending required check; no security judgment yet |
+| **2. Review code against Markdown policy** | Copilot returned a complete, valid assessment of every rule; findings may still be present |
+| **3. Validate review and publish merge verdict** | The reporter validated the evidence and successfully published the verdict, whether allow or reject |
+| **Markdown + LLM security gate** (**Required**) | The reviewed code satisfies the configured policy threshold and can satisfy this merge requirement |
+
+For the unsafe example, expect **one failed required gate and three successful
+jobs**. An invalid/missing review or infrastructure error still fails the
+appropriate job and leaves the required gate failed, missing, or pending.
+A green workflow/job result alone is **not** evidence that merging is allowed.
+The required check's name and App binding are unchanged.
+
+GitHub does not provide a workflow setting to hide individual job-check rows in
+the PR merge box. Collapse **successful checks** to focus on the failed required
+gate. The named steps and each job's Actions summary explain the process in more
+detail. For a required-check-only CLI view, use `gh pr checks PR_NUMBER --required`.
 
 From this checkout, inspect current evidence:
 
@@ -149,8 +176,10 @@ gh run list --workflow security-gate.yml --limit 5
 gh run watch RUN_ID --exit-status
 ```
 
-A policy failure intentionally exits unsuccessfully. Use **Re-run all jobs**,
-not only failed jobs: start, review, and decision must share an attempt identity.
+A valid policy rejection fails the required check, not the reporting process.
+Do not use the workflow conclusion alone as a merge verdict; inspect
+`gh pr checks PR_NUMBER --required`. Use **Re-run all jobs**, not only failed
+jobs: start, review, and decision must share an attempt identity.
 A manual dispatch always uses current `main` and current PR state.
 
 To show head-SHA binding, add an explanatory `app.py` comment on a demo branch,

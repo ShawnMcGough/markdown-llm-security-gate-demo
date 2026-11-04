@@ -6,6 +6,6 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test gate/core.test.mjs"
+    "test": "node --test gate/core.test.mjs gate/run.test.mjs"
   }
 }

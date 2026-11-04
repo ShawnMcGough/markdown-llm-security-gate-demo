@@ -1,4 +1,5 @@
 name: Markdown security review
+run-name: "Review Markdown policy for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
 
 on:
   pull_request_target:
@@ -22,6 +23,7 @@ env:
 
 jobs:
   start:
+    name: 1. Prepare PR snapshot and pending gate
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -33,16 +35,19 @@ jobs:
       head: ${{ steps.start.outputs.head }}
       base: ${{ steps.start.outputs.base }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Load trusted policy and checker from main (not PR code)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.TRUSTED_SHA }}
           persist-credentials: false
-      - id: start
+      - name: Bind a pending required check to the current PR commit
+        id: start
         run: node gate/run.mjs start
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
   review:
+    name: 2. Review code against Markdown policy
     needs: start
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -51,19 +56,21 @@ jobs:
       pull-requests: read
       copilot-requests: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Load trusted policy and checker from main (not PR code)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.TRUSTED_SHA }}
           persist-credentials: false
-      - name: Install pinned Copilot CLI
+      - name: Install Copilot CLI 1.0.105 for a reproducible reviewer
         run: npm install --global @github/copilot@1.0.105
-      - name: Review inert source against trusted Markdown
+      - name: Ask tool-free Copilot to assess every rule using source as text
         run: node gate/run.mjs review
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_HEAD: ${{ needs.start.outputs.head }}
           EXPECTED_BASE: ${{ needs.start.outputs.base }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Save model response and review evidence (including errors)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:
           name: llm-review-${{ github.run_attempt }}
@@ -72,6 +79,7 @@ jobs:
           retention-days: 14
 
   decision:
+    name: 3. Validate review and publish merge verdict
     if: ${{ always() }}
     needs: [start, review]
     runs-on: ubuntu-latest
@@ -81,16 +89,18 @@ jobs:
       pull-requests: read
       checks: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Load trusted reporter from main (not PR code)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.TRUSTED_SHA }}
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Retrieve evidence from the completed model review
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: ${{ needs.review.result == 'success' }}
         with:
           name: llm-review-${{ github.run_attempt }}
           path: gate-output/
-      - name: Publish required head-SHA check (never skip the decision)
+      - name: Validate evidence and publish the required gate (always run)
         if: ${{ always() }}
         run: node gate/run.mjs finish
         env:
