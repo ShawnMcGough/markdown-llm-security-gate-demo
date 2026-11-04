@@ -14,15 +14,35 @@ demo PRs are intentionally left **open and unmerged**.
 
 ## Live evidence
 
-Bootstrap is in progress. No live model result is claimed yet. Expected results:
+Real Copilot reviews completed on November 4, 2026:
 
-| Branch | App-only change | Expected review |
-|---|---|---|
-| `demo/pass-parameterized-email` | `find_by_email` uses `?` and `(email,)` | Complete review, no findings |
-| `demo/fail-interpolated-email` | Same feature uses f-string SQL | SEC-001 / HIGH |
+| Open, unmerged PR | App-only change | Observed model/check result | Actions evidence |
+|---|---|---|---|
+| [#1: parameterized email](https://github.com/ShawnMcGough/markdown-llm-security-gate-demo/pull/1) | `find_by_email` uses `?` and `(email,)` | All three rules pass, no findings; check **success** | [Successful review](https://github.com/ShawnMcGough/markdown-llm-security-gate-demo/actions/runs/41895604488) |
+| [#2: interpolated email](https://github.com/ShawnMcGough/markdown-llm-security-gate-demo/pull/2) | Same feature uses f-string SQL | **SEC-001 / HIGH**, `app.py:28`; check **failure** | [Policy violation](https://github.com/ShawnMcGough/markdown-llm-security-gate-demo/actions/runs/41895604216) |
 
-Real PR/run links and observed results will replace this bootstrap note.
-Parser fixtures and local injection probes are **not** live LLM evidence.
+These are the first successful end-to-end snapshots, reviewed against trusted
+base `9352b69897e6b38111de3d12b47417d5adfc21ee`. Their reviewed heads are
+`f52910bfdcc3f220811bfcef173906760757246a` (pass) and
+`e70369aca289f6404ae6427c880f1c82e8a12fd0` (fail). Both published the exact named
+check from GitHub Actions App **15368** on the correct head. The unsafe review
+job itself succeeded; the decision failed because of the actual model finding.
+The model traced `--email` through `main` into interpolated SQL, explaining how
+input could alter the WHERE clause and return unrelated rows.
+
+The PR links show current heads and newer reviews after final documentation
+updates. Use the inspection commands below for current evidence and enforcement,
+rather than treating these historical SHA snapshots as the latest state.
+Setup ends by activating [the main ruleset](https://github.com/ShawnMcGough/markdown-llm-security-gate-demo/rules/26558788)
+with no bypass actors. Both PRs must remain open and unmerged.
+
+The initial runs exposed a real CLI transport issue: terminal-text output
+hard-wrapped inside JSON strings, so strict parsing correctly failed closed.
+Switching to JSONL fixed the transport without relaxing validation or repairing
+model output. Automatic PR creation and head-update triggers both ran.
+The original 33 Node parser tests, 12 new transport tests, and three Python
+tests pass; local email/injection behavior was also checked for both branches.
+None of these fixtures/probes substitutes for the linked live model evidence.
 
 The owner explicitly authorized making this personal repository public so
 GitHub Free can enforce branch rules. Keeping it private would require GitHub
