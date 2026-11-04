@@ -1,4 +1,7 @@
-"""Educational, local-only directory lookup using synthetic records."""
+"""INTENTIONALLY INSECURE EDUCATIONAL EXAMPLE. Never deploy to production.
+
+Local-only directory lookup using synthetic records.
+"""
 
 import argparse
 import sqlite3
@@ -20,13 +23,25 @@ def find_user(connection, username):
     ).fetchall()
 
 
+def find_by_email(connection, email):
+    return connection.execute(
+        f"SELECT username, email FROM users WHERE email = '{email}'"
+    ).fetchall()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("username", nargs="?", default="alice")
+    parser.add_argument("--email", help="Look up a synthetic record by email")
     args = parser.parse_args()
     connection = create_directory()
     try:
-        for username, email in find_user(connection, args.username):
+        rows = (
+            find_by_email(connection, args.email)
+            if args.email is not None
+            else find_user(connection, args.username)
+        )
+        for username, email in rows:
             print(f"{username}: {email}")
     finally:
         connection.close()
