@@ -1,0 +1,11 @@
+{
+  "name": "markdown-llm-security-gate-demo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test gate/core.test.mjs"
+  }
+}

@@ -1,0 +1,4 @@
+# The BASE branch's owners protect the policy, reviewer, workflows, and this file.
+/.github/ @ShawnMcGough
+/gate/ @ShawnMcGough
+/SECURITY_STANDARD.md @ShawnMcGough

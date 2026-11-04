@@ -1,0 +1,102 @@
+name: Markdown security review
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open PR number to review again (run from main only)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: markdown-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+env:
+  TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+    outputs:
+      check_id: ${{ steps.start.outputs.check_id }}
+      head: ${{ steps.start.outputs.head }}
+      base: ${{ steps.start.outputs.base }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.TRUSTED_SHA }}
+          persist-credentials: false
+      - id: start
+        run: node gate/run.mjs start
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  review:
+    needs: start
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pull-requests: read
+      copilot-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.TRUSTED_SHA }}
+          persist-credentials: false
+      - name: Install pinned Copilot CLI
+        run: npm install --global @github/copilot@1.0.105
+      - name: Review inert source against trusted Markdown
+        run: node gate/run.mjs review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ needs.start.outputs.head }}
+          EXPECTED_BASE: ${{ needs.start.outputs.base }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: llm-review-${{ github.run_attempt }}
+          path: gate-output/
+          if-no-files-found: error
+          retention-days: 14
+
+  decision:
+    if: ${{ always() }}
+    needs: [start, review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.TRUSTED_SHA }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: ${{ needs.review.result == 'success' }}
+        with:
+          name: llm-review-${{ github.run_attempt }}
+          path: gate-output/
+      - name: Publish required head-SHA check (never skip the decision)
+        if: ${{ always() }}
+        run: node gate/run.mjs finish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECK_ID: ${{ needs.start.outputs.check_id }}
+          EXPECTED_HEAD: ${{ needs.start.outputs.head }}
+          EXPECTED_BASE: ${{ needs.start.outputs.base }}
+          START_RESULT: ${{ needs.start.result }}
+          REVIEW_RESULT: ${{ needs.review.result }}
