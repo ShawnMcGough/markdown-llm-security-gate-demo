@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
-  finalConclusion, promptFor, reviewId, rulesFrom, validateChanges, validateReview,
+  finalConclusion, promptFor, responseFromEvents, reviewId, rulesFrom, validateChanges, validateReview,
 } from './core.mjs';
 
 const policy = readFileSync(new URL('../SECURITY_STANDARD.md', import.meta.url), 'utf8');
@@ -109,4 +109,48 @@ test('prompt contains actual policy and inert before/after source, not branch ou
   assert(prompt.includes(policy));
   assert(prompt.includes('"before":"1: old","after":"1: new"'));
   assert(prompt.includes(reviewId(snapshot)));
+});
+
+const cliEvents = () => [
+  { type: 'assistant.message_delta', data: { deltaContent: 'not the complete response' } },
+  { type: 'assistant.message', data: { content: JSON.stringify(valid()) } },
+  { type: 'assistant.turn_end', data: { turnId: 'fixture' } },
+  { type: 'result', exitCode: 0 },
+];
+const jsonl = (events) => events.map((event) => JSON.stringify(event)).join('\n') + '\n';
+
+test('extracts unrendered assistant text from a successful JSONL stream', () => {
+  const raw = responseFromEvents(jsonl(cliEvents()));
+  assert.equal(raw, JSON.stringify(valid()));
+  assert.equal(validateReview(raw, snapshot, policy, source).conclusion, 'success');
+});
+
+for (const [name, mutate] of [
+  ['missing completion', (events) => events.pop()],
+  ['failed completion', (events) => { events.at(-1).exitCode = 1; }],
+  ['duplicate completion', (events) => events.push({ type: 'result', exitCode: 0 })],
+  ['trailing event', (events) => events.push({ type: 'assistant.idle' })],
+  ['missing complete message', (events) => events.splice(1, 1)],
+  ['multiple messages', (events) => events.unshift(events[1])],
+  ['tool request', (events) => { events[1].data.toolRequests = [{ name: 'shell' }]; }],
+  ['tool execution', (events) => events.unshift({ type: 'tool.execution_start' })],
+  ['session error', (events) => events.unshift({ type: 'session.error' })],
+  ['missing content', (events) => { delete events[1].data.content; }],
+]) {
+  test(`rejects CLI transport: ${name}`, () => {
+    const events = cliEvents();
+    mutate(events);
+    assert.throws(() => responseFromEvents(jsonl(events)));
+  });
+}
+
+test('rejects malformed transport and does not repair malformed model JSON', () => {
+  for (const raw of ['', 'not json', 'null', '{}', '{"type":"result"']) {
+    assert.throws(() => responseFromEvents(raw));
+  }
+  const events = cliEvents();
+  events[1].data.content = '{"review_id":"hard\nwrapped"}';
+  const raw = responseFromEvents(jsonl(events));
+  assert.equal(raw, events[1].data.content);
+  assert.throws(() => validateReview(raw, snapshot, policy, source));
 });

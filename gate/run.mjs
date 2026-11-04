@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
-  CHECK_NAME, CLI_VERSION, escapeHtml, finalConclusion, promptFor, sha256,
+  CHECK_NAME, CLI_VERSION, escapeHtml, finalConclusion, promptFor, responseFromEvents, sha256,
   validateChanges, validateReview,
 } from './core.mjs';
 
@@ -122,7 +122,7 @@ async function review() {
     const args = [
       '--no-auto-update', '--no-custom-instructions', '--disable-builtin-mcps',
       '--available-tools=', '--deny-tool=shell', '--deny-tool=write', '--deny-tool=url',
-      '--no-ask-user', '--no-color', '--stream=off', '--silent',
+      '--no-ask-user', '--no-color', '--stream=off', '--output-format=json',
       '--prompt', promptFor(data.snapshot, data.policy, data.before, data.after),
     ];
     let response;
@@ -136,8 +136,10 @@ async function review() {
       await writeFile(join(output, 'cli-error.txt'), diagnostic);
       throw new Error('Copilot exited unsuccessfully or timed out; see cli-error.txt artifact');
     }
-    await writeFile(join(output, 'model-response.txt'), response.stdout);
-    const result = validateReview(response.stdout.trim(), data.snapshot, data.policy, data.after);
+    await writeFile(join(output, 'cli-events.jsonl'), response.stdout);
+    const raw = responseFromEvents(response.stdout);
+    await writeFile(join(output, 'model-response.txt'), raw);
+    const result = validateReview(raw.trim(), data.snapshot, data.policy, data.after);
     await writeFile(join(output, 'review.json'), JSON.stringify({
       snapshot: data.snapshot, cli_version: CLI_VERSION, ...result,
     }, null, 2));
